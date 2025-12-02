@@ -1,5 +1,4 @@
 import time
-
 import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
@@ -37,6 +36,21 @@ img_size = st.sidebar.slider(
     max_value=1024,
     value=640,
     step=32
+)
+conf_thres = st.sidebar.slider(
+    "Confidence Threshold",
+    min_value=0.1,
+    max_value=1.0,
+    value=0.25,
+    step=0.05,
+)
+
+iou_thres = st.sidebar.slider(
+    "IoU Threshold",
+    min_value=0.1,
+    max_value=1.0,
+    value=0.45,
+    step=0.05,
 )
 
 st.sidebar.markdown("---")
@@ -114,4 +128,5 @@ if uploaded_file is not None:
         st.write(f"- Jumlah objek polip yang tersegmentasi: **{num_polyp}**")
 else:
     st.info("Silakan upload gambar kolonoskopi terlebih dahulu.")
+
 
