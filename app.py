@@ -17,7 +17,7 @@ st.title("🩺 Segmentasi Polip Kolonoskopi Real-Time – YOLOv8-Seg")
 st.markdown(
     """
 Aplikasi ini menggunakan **YOLOv8-Seg** untuk melakukan segmentasi polip pada citra kolonoskopi.  
-Upload gambar, lalu model akan memberikan hasil segmentasi beserta estimasi **waktu pemrosesan** dan **FPS**.
+Upload **satu atau beberapa gambar**, lalu model akan memberikan hasil segmentasi beserta estimasi **waktu pemrosesan** dan **FPS**.
 """
 )
 
@@ -67,59 +67,78 @@ if weights_path:
 # =========================
 st.subheader("1️⃣ Upload Gambar Kolonoskopi")
 
-uploaded_file = st.file_uploader(
-    "Pilih file gambar (JPG/PNG)",
-    type=["jpg", "jpeg", "png"]
+uploaded_files = st.file_uploader(
+    "Pilih satu atau beberapa file gambar (JPG/PNG)",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=True
 )
 
-col1, col2 = st.columns(2)
-
-if uploaded_file is not None:
-    # Baca gambar
-    image = Image.open(uploaded_file).convert("RGB")
-    with col1:
-        st.image(image, caption="Gambar Original", use_column_width=True)
-
+if uploaded_files:
     if model_load_error:
         st.error(f"Gagal load model: {model_load_error}")
     elif model is None:
         st.warning("Model belum dimuat. Cek kembali path model di sidebar.")
     else:
-        st.subheader("2️⃣ Hasil Segmentasi YOLOv8-Seg")
+        # List untuk menyimpan metrik semua gambar
+        all_ms = []
+        all_fps = []
 
-        with st.spinner("Sedang melakukan segmentasi..."):
-            # Konversi ke format yang bisa diterima YOLO langsung (PIL ok)
-            t0 = time.time()
-            results = model.predict(
-                image,
-                imgsz=img_size,
-                verbose=False
-            )
-            dt = time.time() - t0
+        for idx, uploaded_file in enumerate(uploaded_files, start=1):
+            st.markdown(f"---\n### 🖼️ Gambar #{idx}")
 
-        result = results[0]
+            col1, col2 = st.columns(2)
 
-        # Visualisasi hasil (YOLO sudah mengembalikan numpy array BGR)
-        plotted = result.plot()              # BGR
-        plotted_rgb = plotted[:, :, ::-1]    # konversi ke RGB
+            # Baca gambar
+            image = Image.open(uploaded_file).convert("RGB")
+            with col1:
+                st.image(image, caption=f"Gambar Original #{idx}", use_column_width=True)
 
-        with col2:
-            st.image(plotted_rgb, caption="Hasil Segmentasi", use_column_width=True)
+            with st.spinner(f"Sedang melakukan segmentasi untuk gambar #{idx}..."):
+                t0 = time.time()
+                results = model.predict(
+                    image,
+                    imgsz=img_size,
+                    verbose=False
+                )
+                dt = time.time() - t0
+
+            result = results[0]
+
+            # Visualisasi hasil (YOLO mengembalikan numpy array BGR)
+            plotted = result.plot()              # BGR
+            plotted_rgb = plotted[:, :, ::-1]    # ke RGB
+
+            with col2:
+                st.image(plotted_rgb, caption=f"Hasil Segmentasi #{idx}", use_column_width=True)
+
+            # Metrik per gambar
+            ms_per_frame = dt * 1000.0
+            fps = 1.0 / dt if dt > 0 else 0.0
+
+            all_ms.append(ms_per_frame)
+            all_fps.append(fps)
+
+            st.write(f"- Waktu pemrosesan (inference time per frame): **{ms_per_frame:.2f} ms/frame**")
+            st.write(f"- Perkiraan FPS: **{fps:.2f} frame/detik**")
+
+            if result.masks is not None:
+                num_polyp = len(result.masks.data)
+                st.write(f"- Jumlah objek polip yang tersegmentasi: **{num_polyp}**")
 
         # =========================
-        # METRIK WAKTU & FPS
+        # RINGKASAN RATA-RATA & MEDIAN
         # =========================
-        ms_per_frame = dt * 1000.0
-        fps = 1.0 / dt if dt > 0 else 0.0
+        if all_fps:
+            avg_ms = float(np.mean(all_ms))
+            med_ms = float(np.median(all_ms))
+            avg_fps = float(np.mean(all_fps))
+            med_fps = float(np.median(all_fps))
 
-        st.markdown("### 3️⃣ Metrik Real-Time (Per Gambar)")
-        st.write(f"- Waktu pemrosesan (inference time per frame): **{ms_per_frame:.2f} ms/frame**")
-        st.write(f"- Perkiraan FPS: **{fps:.2f} frame/detik**")
-
-        # Opsional: info jumlah mask (jumlah polip terdeteksi)
-        if result.masks is not None:
-            num_polyp = len(result.masks.data)
-            st.write(f"- Jumlah objek polip yang tersegmentasi: **{num_polyp}**")
+            st.markdown("---")
+            st.markdown("## 📊 Rangkuman Metrik Semua Gambar")
+            st.write(f"- Rata-rata waktu pemrosesan: **{avg_ms:.2f} ms/frame**")
+            st.write(f"- Median waktu pemrosesan: **{med_ms:.2f} ms/frame**")
+            st.write(f"- Rata-rata FPS: **{avg_fps:.2f} frame/detik**")
+            st.write(f"- Median FPS: **{med_fps:.2f} frame/detik**")
 else:
-    st.info("Silakan upload gambar kolonoskopi terlebih dahulu.")
-
+    st.info("Silakan upload satu atau beberapa gambar kolonoskopi terlebih dahulu.")
