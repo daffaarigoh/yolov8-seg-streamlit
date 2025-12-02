@@ -2,6 +2,7 @@ import time
 import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
+import numpy as np
 
 # =========================
 # CONFIG APP
@@ -12,7 +13,6 @@ st.set_page_config(
 )
 
 st.title("🩺 Segmentasi Polip Kolonoskopi Real-Time – YOLOv8-Seg")
-st.write("App berhasil dijalankan. Kalau kamu melihat teks ini, Streamlit sudah OK ✅")
 
 st.markdown(
     """
@@ -26,9 +26,28 @@ Upload gambar, lalu model akan memberikan hasil segmentasi beserta estimasi **wa
 # =========================
 st.sidebar.header("⚙️ Pengaturan")
 
-# Di deployment, asumsikan best.pt ada di root repo
-WEIGHTS_PATH = "best.pt"
-st.sidebar.write("Model: `best.pt` (otomatis dibaca dari root project)")
+default_weights = "best.pt"  # ganti kalau file kamu beda nama/path
+weights_path = st.sidebar.text_input(
+    "Path model YOLOv8-Seg (.pt)",
+    value=default_weights,
+    help="Letakkan file best.pt di folder yang sama dengan app.py atau tuliskan path lengkapnya."
+)
+
+conf_thres = st.sidebar.slider(
+    "Confidence threshold",
+    min_value=0.1,
+    max_value=0.9,
+    value=0.25,
+    step=0.05
+)
+
+iou_thres = st.sidebar.slider(
+    "IoU threshold",
+    min_value=0.1,
+    max_value=0.9,
+    value=0.5,
+    step=0.05
+)
 
 img_size = st.sidebar.slider(
     "Image size (imgsz)",
@@ -37,33 +56,27 @@ img_size = st.sidebar.slider(
     value=640,
     step=32
 )
-conf_thres = st.sidebar.slider(
-    "Confidence Threshold",
-    min_value=0.1,
-    max_value=1.0,
-    value=0.25,
-    step=0.05,
-)
-
-iou_thres = st.sidebar.slider(
-    "IoU Threshold",
-    min_value=0.1,
-    max_value=1.0,
-    value=0.45,
-    step=0.05,
-)
 
 st.sidebar.markdown("---")
 st.sidebar.info(
-    "Pastikan file **best.pt** ada di root repo Streamlit (satu folder dengan app.py)."
+    "Pastikan file **model** sudah ada di path yang benar sebelum menjalankan prediksi."
 )
 
 # =========================
-# LOAD MODEL (LAZY, CACHE)
+# LOAD MODEL (CACHE)
 # =========================
 @st.cache_resource
-def load_model():
-    return YOLO(WEIGHTS_PATH)
+def load_model(path: str):
+    model = YOLO(path)
+    return model
+
+model = None
+model_load_error = None
+if weights_path:
+    try:
+        model = load_model(weights_path)
+    except Exception as e:
+        model_load_error = str(e)
 
 # =========================
 # MAIN CONTENT
@@ -78,55 +91,52 @@ uploaded_file = st.file_uploader(
 col1, col2 = st.columns(2)
 
 if uploaded_file is not None:
-    # Tampilkan gambar original
+    # Baca gambar
     image = Image.open(uploaded_file).convert("RGB")
     with col1:
         st.image(image, caption="Gambar Original", use_column_width=True)
 
-    # Load model hanya saat dibutuhkan
-    with st.spinner("Memuat model YOLOv8-Seg... (pertama kali bisa agak lama)"):
-        try:
-            model = load_model()
-        except Exception as e:
-            st.error(f"Gagal load model: {e}")
-            st.stop()
+    if model_load_error:
+        st.error(f"Gagal load model: {model_load_error}")
+    elif model is None:
+        st.warning("Model belum dimuat. Cek kembali path model di sidebar.")
+    else:
+        st.subheader("2️⃣ Hasil Segmentasi YOLOv8-Seg")
 
-    st.subheader("2️⃣ Hasil Segmentasi YOLOv8-Seg")
+        with st.spinner("Sedang melakukan segmentasi..."):
+            # Konversi ke format yang bisa diterima YOLO langsung (PIL ok)
+            t0 = time.time()
+            results = model.predict(
+                image,
+                imgsz=img_size,
+                conf=conf_thres,
+                iou=iou_thres,
+                verbose=False
+            )
+            dt = time.time() - t0
 
-    with st.spinner("Sedang melakukan segmentasi..."):
-        t0 = time.time()
-        results = model.predict(
-            image,
-            imgsz=img_size,
-            conf=conf_thres,
-            iou=iou_thres,
-            verbose=False
-        )
-        dt = time.time() - t0
+        result = results[0]
 
-    result = results[0]
+        # Visualisasi hasil (YOLO sudah mengembalikan numpy array BGR)
+        plotted = result.plot()              # BGR
+        plotted_rgb = plotted[:, :, ::-1]    # konversi ke RGB
 
-    # Visualisasi hasil (YOLO mengembalikan BGR numpy array)
-    plotted = result.plot()              # BGR
-    plotted_rgb = plotted[:, :, ::-1]    # ke RGB
+        with col2:
+            st.image(plotted_rgb, caption="Hasil Segmentasi", use_column_width=True)
 
-    with col2:
-        st.image(plotted_rgb, caption="Hasil Segmentasi", use_column_width=True)
+        # =========================
+        # METRIK WAKTU & FPS
+        # =========================
+        ms_per_frame = dt * 1000.0
+        fps = 1.0 / dt if dt > 0 else 0.0
 
-    # =========================
-    # METRIK WAKTU & FPS
-    # =========================
-    ms_per_frame = dt * 1000.0
-    fps = 1.0 / dt if dt > 0 else 0.0
+        st.markdown("### 3️⃣ Metrik Real-Time (Per Gambar)")
+        st.write(f"- Waktu pemrosesan (inference time per frame): **{ms_per_frame:.2f} ms/frame**")
+        st.write(f"- Perkiraan FPS: **{fps:.2f} frame/detik**")
 
-    st.markdown("### 3️⃣ Metrik Real-Time (Per Gambar)")
-    st.write(f"- Waktu pemrosesan (inference time per frame): **{ms_per_frame:.2f} ms/frame**")
-    st.write(f"- Perkiraan FPS: **{fps:.2f} frame/detik**")
-
-    if result.masks is not None:
-        num_polyp = len(result.masks.data)
-        st.write(f"- Jumlah objek polip yang tersegmentasi: **{num_polyp}**")
+        # Opsional: info jumlah mask (jumlah polip terdeteksi)
+        if result.masks is not None:
+            num_polyp = len(result.masks.data)
+            st.write(f"- Jumlah objek polip yang tersegmentasi: **{num_polyp}**")
 else:
     st.info("Silakan upload gambar kolonoskopi terlebih dahulu.")
-
-
