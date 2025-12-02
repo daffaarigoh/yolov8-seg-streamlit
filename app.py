@@ -33,22 +33,6 @@ weights_path = st.sidebar.text_input(
     help="Letakkan file best.pt di folder yang sama dengan app.py atau tuliskan path lengkapnya."
 )
 
-conf_thres = st.sidebar.slider(
-    "Confidence threshold",
-    min_value=0.1,
-    max_value=0.9,
-    value=0.25,
-    step=0.05
-)
-
-iou_thres = st.sidebar.slider(
-    "IoU threshold",
-    min_value=0.1,
-    max_value=0.9,
-    value=0.5,
-    step=0.05
-)
-
 img_size = st.sidebar.slider(
     "Image size (imgsz)",
     min_value=320,
@@ -109,8 +93,6 @@ if uploaded_file is not None:
             results = model.predict(
                 image,
                 imgsz=img_size,
-                conf=conf_thres,
-                iou=iou_thres,
                 verbose=False
             )
             dt = time.time() - t0
@@ -140,3 +122,4 @@ if uploaded_file is not None:
             st.write(f"- Jumlah objek polip yang tersegmentasi: **{num_polyp}**")
 else:
     st.info("Silakan upload gambar kolonoskopi terlebih dahulu.")
+
